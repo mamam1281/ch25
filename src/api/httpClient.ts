@@ -2,27 +2,56 @@
 import axios from "axios";
 import { clearAuth, getAuthToken } from "../auth/authStore";
 
-// Resolve API base URL with explicit warning when falling back to localhost.
 // Note: Do NOT append /api here; API paths already include /api prefix.
-const rawBase =
-  import.meta.env.VITE_API_BASE_URL ??
-  import.meta.env.VITE_API_URL ??
-  "http://localhost:8000";
+// Resolution priority:
+// 1) Explicit env (VITE_API_BASE_URL or VITE_API_URL)
+// 2) Runtime-derived: localhost -> :8000, otherwise same-origin (expects reverse proxy)
+const rawEnvBase = (import.meta.env.VITE_API_BASE_URL || import.meta.env.VITE_API_URL || "").trim();
 
-if (!import.meta.env.VITE_API_BASE_URL && !import.meta.env.VITE_API_URL) {
-  // eslint-disable-next-line no-console
-  console.warn("[httpClient] Using default localhost API base URL; set VITE_API_BASE_URL for stage/prod.");
-}
+const normalizeUserApiBase = (base: string) => {
+  const trimmed = base.replace(/\/+$/, "");
+  // Common misconfig: base already ends with `/api` while request paths also start with `/api/*`
+  // -> results in `/api/api/*` and 404s.
+  return trimmed.replace(/\/api$/, "");
+};
 
-const resolvedBaseURL = rawBase.replace(/\/+$/, "");
+const envBase = normalizeUserApiBase(rawEnvBase);
+
+const resolvedBaseURL = (() => {
+  if (envBase) return envBase.replace(/\/+$/, "");
+
+  if (typeof window !== "undefined") {
+    const { hostname, protocol } = window.location;
+    const isLocalHost = hostname === "localhost" || hostname === "127.0.0.1";
+
+    if (isLocalHost) return `${protocol}//${hostname}:8000`;
+
+    // In production, use empty or relative if paths are handled by proxy
+    return "";
+  }
+  return "";
+})();
+
+const DEFAULT_TIMEOUT_MS = 15000;
+const resolvedTimeoutMs = (() => {
+  const raw = String(import.meta.env.VITE_API_TIMEOUT_MS ?? "").trim();
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_TIMEOUT_MS;
+})();
 
 export const userApi = axios.create({
   baseURL: resolvedBaseURL,
+  timeout: resolvedTimeoutMs,
 });
 
 // Attach bearer token if present in storage; keeps compatibility with existing `token` key.
 userApi.interceptors.request.use((config) => {
   const token = getAuthToken() || (typeof localStorage !== "undefined" ? localStorage.getItem("token") : null);
+  const url = String(config.url ?? "");
+  // Do not attach Authorization to login endpoint.
+  if (url.endsWith("/api/auth/token")) {
+    return config;
+  }
   if (token) {
     config.headers = config.headers ?? {};
     config.headers.Authorization = `Bearer ${token}`;
@@ -38,9 +67,20 @@ userApi.interceptors.response.use(
     // Handle 401/403 by redirecting to home or login (when login page exists)
     const status = error?.response?.status;
     if (status === 401 || status === 403) {
-      clearAuth();
-      if (typeof window !== "undefined" && window.location.pathname !== "/login") {
-        window.location.href = "/login";
+      const hadAuthHeader = Boolean(
+        error?.config?.headers?.Authorization ||
+          error?.config?.headers?.authorization ||
+          error?.config?.headers?.AUTHORIZATION
+      );
+      const currentToken =
+        getAuthToken() || (typeof localStorage !== "undefined" ? localStorage.getItem("token") : null);
+
+      // Avoid logout/redirect loops for anonymous calls (e.g., app boot before login).
+      if (hadAuthHeader || currentToken) {
+        clearAuth();
+        if (typeof window !== "undefined" && window.location.pathname !== "/login") {
+          window.location.href = "/login";
+        }
       }
     }
     return Promise.reject(error);

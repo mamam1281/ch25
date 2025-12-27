@@ -9,8 +9,8 @@ export interface AdminDiceConfigPayload {
   win_reward_value: number;
   lose_reward_type: string;
   lose_reward_value: number;
-  draw_reward_type?: string;
-  draw_reward_value?: number;
+  draw_reward_type: string;
+  draw_reward_value: number;
 }
 
 export interface AdminDiceConfig extends AdminDiceConfigPayload {
@@ -20,16 +20,16 @@ export interface AdminDiceConfig extends AdminDiceConfigPayload {
 }
 
 export async function fetchDiceConfigs() {
-  const { data } = await adminApi.get<AdminDiceConfig[]>("/dice-config");
+  const { data } = await adminApi.get<AdminDiceConfig[]>("/admin/api/dice-config/");
   return data;
 }
 
 export async function createDiceConfig(payload: AdminDiceConfigPayload) {
-  const { data } = await adminApi.post<AdminDiceConfig>("/dice-config", payload);
+  const { data } = await adminApi.post<AdminDiceConfig>("/admin/api/dice-config/", payload);
   return data;
 }
 
 export async function updateDiceConfig(id: number, payload: AdminDiceConfigPayload) {
-  const { data } = await adminApi.put<AdminDiceConfig>(`/dice-config/${id}`, payload);
+  const { data } = await adminApi.put<AdminDiceConfig>(`/admin/api/dice-config/${id}`, payload);
   return data;
 }

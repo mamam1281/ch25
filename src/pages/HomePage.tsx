@@ -16,16 +16,20 @@ interface GameCardProps {
   readonly path: string;
   readonly tokenType?: string;
   readonly tokenBalance?: number | null;
+  readonly iconSrc?: string;
+  readonly iconFallbackSrc?: string;
   readonly state?: "idle" | "loading" | "error";
 }
 
-const gameIcons: Record<string, string> = {
-  "룰렛": "🎰",
-  "주사위": "🎲",
-  "복권": "🎟️",
-};
-
-const GameCard: React.FC<GameCardProps> = ({ title, path, tokenType, tokenBalance, state = "idle" }) => {
+const GameCard: React.FC<GameCardProps> = ({
+  title,
+  path,
+  tokenType,
+  tokenBalance,
+  iconSrc,
+  iconFallbackSrc,
+  state = "idle",
+}) => {
   const navigate = useNavigate();
   const hasCoins = typeof tokenBalance === "number" && tokenBalance > 0;
   const tokenLabel = tokenType ? GAME_TOKEN_LABELS[tokenType as keyof typeof GAME_TOKEN_LABELS] ?? tokenType : "미지급";
@@ -34,14 +38,31 @@ const GameCard: React.FC<GameCardProps> = ({ title, path, tokenType, tokenBalanc
       ? "상태 로딩 중"
       : state === "error"
         ? "상태 조회 실패 - 티켓 지급 확인"
-       : undefined;
+        : undefined;
+
+  const shouldRenderIcon = !!iconSrc;
 
   return (
     <div className="rounded-2xl border border-emerald-500/25 bg-white/5 backdrop-blur-xl p-5 shadow-lg transition hover:border-emerald-300/40">
       <div className="flex items-start justify-between gap-3">
         <div className="space-y-1">
           <div className="flex items-center gap-2">
-            <span className="text-2xl">{gameIcons[title] ?? "🎮"}</span>
+            {shouldRenderIcon ? (
+              <span className="relative h-7 w-7 shrink-0">
+                <img
+                  src={iconSrc}
+                  alt={title}
+                  className="absolute inset-0 h-full w-full object-contain"
+                  onError={(e) => {
+                    if (!iconFallbackSrc) return;
+                    e.currentTarget.onerror = null;
+                    e.currentTarget.src = iconFallbackSrc;
+                  }}
+                />
+              </span>
+            ) : (
+              <span className="text-2xl">🎮</span>
+            )}
             <h3 className="text-lg font-extrabold text-white">{title}</h3>
           </div>
           <p className="text-xs text-slate-300">{tokenLabel}</p>
@@ -91,6 +112,8 @@ const HomePage: React.FC = () => {
       path: "/roulette",
       tokenType: roulette.data?.token_type,
       tokenBalance: roulette.data?.token_balance ?? null,
+      iconSrc: "/images/layer-1.svg",
+      iconFallbackSrc: "/assets/figma/icon-roulette.png",
       state: roulette.isLoading ? "loading" : roulette.isError ? "error" : "idle",
     },
     {
@@ -98,6 +121,8 @@ const HomePage: React.FC = () => {
       path: "/dice",
       tokenType: dice.data?.token_type,
       tokenBalance: dice.data?.token_balance ?? null,
+      iconSrc: "/images/layer-2.svg",
+      iconFallbackSrc: "/assets/figma/icon-level.png",
       state: dice.isLoading ? "loading" : dice.isError ? "error" : "idle",
     },
     {
@@ -105,6 +130,8 @@ const HomePage: React.FC = () => {
       path: "/lottery",
       tokenType: lottery.data?.token_type,
       tokenBalance: lottery.data?.token_balance ?? null,
+      iconSrc: "/images/layer-3.svg",
+      iconFallbackSrc: "/assets/figma/icon-lottery.png",
       state: lottery.isLoading ? "loading" : lottery.isError ? "error" : "idle",
     },
   ];
@@ -145,8 +172,8 @@ const HomePage: React.FC = () => {
     const wins = internalWins.data
       ? `승리 ${internalWins.data.total_wins} (남은 ${internalWins.data.remaining})`
       : internalWins.isLoading
-      ? "승리 집계 중"
-      : "승리 집계 실패";
+        ? "승리 집계 중"
+        : "승리 집계 실패";
     return { top10, daily, depositNext, wins };
   }, [depositRemainder, external?.rank, internalWins.data, internalWins.isLoading, playDone]);
 
@@ -219,21 +246,21 @@ const HomePage: React.FC = () => {
       )}
 
       {/* Hero */}
-      <div className="rounded-3xl border border-emerald-500/25 bg-gradient-to-br from-white/10 via-white/5 to-emerald-500/10 backdrop-blur-2xl p-7 shadow-2xl">
+      <div className="rounded-3xl border border-white/10 bg-gradient-to-br from-white/10 via-black/40 to-amber-500/10 backdrop-blur-2xl p-6 shadow-2xl">
         <div className="flex flex-col gap-6 md:flex-row md:items-end md:justify-between">
           <div className="space-y-3">
-            <p className="text-xs uppercase tracking-[0.28em] text-emerald-300">Christmas Event</p>
-            <h2 className="text-3xl font-extrabold text-white md:text-4xl">
+            <p className="text-xs uppercase tracking-[0.28em] text-amber-400 font-bold">GRAND OPENING</p>
+            <h2 className="text-3xl font-black text-white md:text-5xl tracking-tight">
               {displayName(user?.external_id)}님
               <br className="block sm:hidden" />
-              메리크리스마스!
+              <span className="ml-2 sm:ml-0 text-transparent bg-clip-text bg-gradient-to-r from-white to-amber-200">환영합니다</span>
             </h2>
-            <p className="text-sm text-slate-200/90">복잡한 설명 없이, 티켓 있으면 바로 시작합니다.</p>
+            <p className="text-sm text-slate-300">복잡한 절차 없이, VIP 권한으로 바로 시작하세요.</p>
 
             <div className="mt-4 flex flex-wrap gap-2">
-              <span className="rounded-full border border-emerald-500/40 bg-emerald-900/25 px-3 py-1 text-xs text-emerald-100">{missionSummary.top10}</span>
+              <span className="rounded-full border border-amber-500/40 bg-amber-900/20 px-3 py-1 text-xs text-amber-100">{missionSummary.top10}</span>
               <span className="rounded-full border border-white/15 bg-white/5 px-3 py-1 text-xs text-white/90">{missionSummary.daily}</span>
-              <span className="rounded-full border border-gold-500/25 bg-amber-900/15 px-3 py-1 text-xs text-amber-100">{missionSummary.depositNext}</span>
+              <span className="rounded-full border border-white/15 bg-white/5 px-3 py-1 text-xs text-white/90">{missionSummary.depositNext}</span>
               <span className="rounded-full border border-white/15 bg-white/5 px-3 py-1 text-xs text-white/90">{missionSummary.wins}</span>
             </div>
           </div>
@@ -282,7 +309,7 @@ const HomePage: React.FC = () => {
       </div>
 
       {/* Team battle (compact) */}
-      <div className="rounded-3xl border border-amber-500/25 bg-gradient-to-br from-white/10 via-white/5 to-amber-500/10 backdrop-blur-2xl p-7 shadow-2xl">
+      <div className="rounded-3xl border border-amber-500/25 bg-gradient-to-br from-white/10 via-white/5 to-amber-500/10 backdrop-blur-2xl p-6 shadow-2xl">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="space-y-1">
             <p className="text-xs uppercase tracking-[0.28em] text-amber-200">Team Battle</p>
@@ -339,7 +366,7 @@ const HomePage: React.FC = () => {
       </div>
 
       {/* Ranking (compact) */}
-      <div className="rounded-3xl border border-gold-500/25 bg-gradient-to-br from-white/10 via-white/5 to-amber-500/10 backdrop-blur-2xl p-7 shadow-2xl">
+      <div className="rounded-3xl border border-gold-500/25 bg-gradient-to-br from-white/10 via-white/5 to-amber-500/10 backdrop-blur-2xl p-6 shadow-2xl">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <p className="text-xs uppercase tracking-[0.28em] text-amber-200">Ranking</p>

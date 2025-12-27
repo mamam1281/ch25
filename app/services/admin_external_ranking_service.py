@@ -12,7 +12,7 @@ from app.models.season_pass import SeasonPassStampLog
 from app.schemas.external_ranking import ExternalRankingCreate, ExternalRankingUpdate
 from app.models.user import User
 from app.models.new_member_dice import NewMemberDiceEligibility
-from app.services.reward_service import RewardService
+from app.services.vault_service import VaultService
 from app.services.season_pass_service import SeasonPassService
 from app.core.config import get_settings
 
@@ -24,13 +24,6 @@ class AdminExternalRankingService:
     XP_PER_STEP = 20
     MAX_STEPS_PER_DAY = 50
 
-    # Vault unlock tiers (v2): determined by deposit increase delta.
-    # Option A (10,000 charge): unlock 5,000 and keep remainder locked.
-    # Option B (50,000 charge): unlock 10,000.
-    VAULT_TIER_A_MIN_DELTA = 10_000
-    VAULT_TIER_A_UNLOCK = 5_000
-    VAULT_TIER_B_MIN_DELTA = 50_000
-    VAULT_TIER_B_UNLOCK = 10_000
 
     @staticmethod
     def _resolve_user_id(db: Session, payload_user_id: int | None, external_id: str | None) -> int:
@@ -61,7 +54,7 @@ class AdminExternalRankingService:
     @staticmethod
     def upsert_many(db: Session, data: Iterable[ExternalRankingCreate]) -> list[ExternalRankingData]:
         season_pass = SeasonPassService()
-        reward_service = RewardService()
+        vault_service = VaultService()
         settings = get_settings()
         today = date.today()
         now = datetime.utcnow()
@@ -145,45 +138,50 @@ class AdminExternalRankingService:
                     and (eligibility.expires_at is None or eligibility.expires_at > now)
                 )
                 if eligible_new_user:
-                    user_q = db.query(User).filter(User.id == row.user_id)
-                    if db.bind and db.bind.dialect.name != "sqlite":
-                        user_q = user_q.with_for_update()
-                    user = user_q.one_or_none()
-                    if user is not None and int(user.vault_balance or 0) > 0:
-                        unlock_target = 0
-                        tier = None
-                        if deposit_delta >= AdminExternalRankingService.VAULT_TIER_B_MIN_DELTA:
-                            unlock_target = AdminExternalRankingService.VAULT_TIER_B_UNLOCK
-                            tier = "B"
-                        elif deposit_delta >= AdminExternalRankingService.VAULT_TIER_A_MIN_DELTA:
-                            unlock_target = AdminExternalRankingService.VAULT_TIER_A_UNLOCK
-                            tier = "A"
-
-                        if unlock_target > 0:
-                            unlock_amount = min(int(user.vault_balance or 0), unlock_target)
-                            user.vault_balance = max(int(user.vault_balance or 0) - unlock_amount, 0)
-                            db.add(user)
-                            reward_service.grant_point(
-                                db,
-                                user_id=user.id,
-                                amount=unlock_amount,
-                                reason="VAULT_UNLOCK",
-                                label="VAULT_UNLOCK",
-                                meta={
-                                    "trigger": "EXTERNAL_RANKING_DEPOSIT_INCREASE",
-                                    "tier": tier,
-                                    "unlock_target": unlock_target,
-                                    "unlock_amount": unlock_amount,
-                                    "external_ranking_deposit_prev": prev_amount,
-                                    "external_ranking_deposit_new": new_amount,
-                                    "external_ranking_deposit_delta": deposit_delta,
-                                },
-                                commit=False,
-                            )
+                    vault_service.handle_deposit_increase_signal(
+                        db,
+                        user_id=row.user_id,
+                        deposit_delta=deposit_delta,
+                        prev_amount=prev_amount,
+                        new_amount=new_amount,
+                        now=now,
+                        commit=False,
+                    )
         db.commit()
 
         # Season pass XP hooks (daily deltas) + weekly TOP10 stamp
         current_season = season_pass.get_current_season(db, today)
+        if not current_season and bool(getattr(settings, "test_mode", False)):
+            # In tests we want deposit->XP logic to be verifiable without needing explicit season seeds.
+            # Keep this behavior strictly in TEST_MODE to avoid changing production behavior.
+            from datetime import timedelta
+
+            from app.models.season_pass import SeasonPassConfig, SeasonPassLevel
+
+            season = SeasonPassConfig(
+                season_name=f"DEFAULT-{today.isoformat()}",
+                start_date=today,
+                end_date=today + timedelta(days=6),
+                max_level=10,
+                base_xp_per_stamp=10,
+                is_active=True,
+            )
+            levels = [
+                SeasonPassLevel(
+                    season=season,
+                    level=i,
+                    required_xp=20 * i,
+                    reward_type="POINT",
+                    reward_amount=100 * i,
+                    auto_claim=True,
+                )
+                for i in range(1, 11)
+            ]
+            db.add(season)
+            db.add_all(levels)
+            db.commit()
+            current_season = season
+
         if not current_season:
             return results
 
